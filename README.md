@@ -2,6 +2,7 @@
 Internal logics from frameworks in calculating evaluation metrics for LLM Applications
 
 
+
 ### Ragas response relevancy:
 #### (takes response generated and user_input)
 
@@ -112,3 +113,126 @@ return output : embedding on actual question for cosine similarity against embed
  numerator = sum([(sum(verdict_list[: i + 1]) / (i + 1)) * verdict_list[i]for i in range(len(verdict_list))])
 
  score = numerator / denominator
+
+### Ragas Faithfullness 
+#### user_input, response
+
+#### Instruction1 - Response to mutliple statements
+ "Given a question, an answer, and sentences from the answer analyze the complexity of each sentence given under 'sentences' and break down each sentence into one or more fully understandable statements while also ensuring no pronouns are used in each statement. Format the outputs in JSON."
+
+#### oneshot example: statements generation
+```examples = [
+        (
+            StatementGeneratorInput(
+                question="Who was Albert Einstein and what is he best known for?",
+                answer="He was a German-born theoretical physicist, widely acknowledged to be one of the greatest and most influential physicists of all time. He was best known for developing the theory of relativity, he also made important contributions to the development of the theory of quantum mechanics.",
+            ),
+            StatementGeneratorOutput(
+                statements=[
+                    "Albert Einstein was a German-born theoretical physicist.",
+                    "Albert Einstein is recognized as one of the greatest and most influential physicists of all time.",
+                    "Albert Einstein was best known for developing the theory of relativity.",
+                    "Albert Einstein also made important contributions to the development of the theory of quantum mechanics.",
+                ]
+            ),
+        )
+    ]
+```
+
+#### Instruction2 - faithfullness verdicts with reasoning for each statement
+ "Your task is to judge the faithfulness of a series of statements based on a given context. For each statement you must return verdict as 1 if the statement can be directly inferred based on the context or 0 if the statement can not be directly inferred based on the context."
+
+#### Fewshot examples - verdicts generation
+```
+examples = [
+        (
+            NLIStatementInput(
+                context="""John is a student at XYZ University. He is pursuing a degree in Computer Science. He is enrolled in several courses this semester, including Data Structures, Algorithms, and Database Management. John is a diligent student and spends a significant amount of time studying and completing assignments. He often stays late in the library to work on his projects.""",
+                statements=[
+                    "John is majoring in Biology.",
+                    "John is taking a course on Artificial Intelligence.",
+                    "John is a dedicated student.",
+                    "John has a part-time job.",
+                ],
+            ),
+            NLIStatementOutput(
+                statements=[
+                    StatementFaithfulnessAnswer(
+                        statement="John is majoring in Biology.",
+                        reason="John's major is explicitly mentioned as Computer Science. There is no information suggesting he is majoring in Biology.",
+                        verdict=0,
+                    ),
+                    StatementFaithfulnessAnswer(
+                        statement="John is taking a course on Artificial Intelligence.",
+                        reason="The context mentions the courses John is currently enrolled in, and Artificial Intelligence is not mentioned. Therefore, it cannot be deduced that John is taking a course on AI.",
+                        verdict=0,
+                    ),
+                    StatementFaithfulnessAnswer(
+                        statement="John is a dedicated student.",
+                        reason="The context states that he spends a significant amount of time studying and completing assignments. Additionally, it mentions that he often stays late in the library to work on his projects, which implies dedication.",
+                        verdict=1,
+                    ),
+                    StatementFaithfulnessAnswer(
+                        statement="John has a part-time job.",
+                        reason="There is no information given in the context about John having a part-time job.",
+                        verdict=0,
+                    ),
+                ]
+            ),
+        ),
+        (
+            NLIStatementInput(
+                context="Photosynthesis is a process used by plants, algae, and certain bacteria to convert light energy into chemical energy.",
+                statements=[
+                    "Albert Einstein was a genius.",
+                ],
+            ),
+            NLIStatementOutput(
+                statements=[
+                    StatementFaithfulnessAnswer(
+                        statement="Albert Einstein was a genius.",
+                        reason="The context and statement are unrelated",
+                        verdict=0,
+                    )
+                ]
+            ),
+        ),
+    ]
+```
+
+return output: 
+ ratio of total faithfull verdicts(1) to total verdicts
+
+### Ragas Factual Correctness
+#### Takes context and response
+
+#### Instruction1: Claim decomposition(it happens on response based on decomposition type)
+    "Decompose and break down each of the input sentences into one or more standalone statements. Each statement should be a standalone claim that can be independently verified.
+    Follow the level of atomicity and coverage as shown in the examples."
+#### Few shot example:
+ Input : "Charles Babbage was a French mathematician, philosopher, and food critic."
+ Low Automicity and Low Coverage Output : claims=["Charles Babbage was a mathematician and philosopher."]
+ Low Automicity and High Coverage Output : claims=["Charles Babbage was a French mathematician, philosopher, and food critic."]
+ High Automicity and Low Coverage Output : [
+                    "Charles Babbage was a mathematician.",
+                    "Charles Babbage was a philosopher.",
+                ]
+ High Automicty and High Coverage Output : claims=[
+                    "Charles Babbage was a mathematician.",
+                    "Charles Babbage was a philosopher.",
+                    "Charles Babbage was a food critic.",
+                    "Charles Babbage was French.",
+                ]
+
+#### Instruction2: Natural language inference(reused from faithfullness - applies on context and above statements)
+    "Your task is to judge the faithfulness of a series of statements based on a given context. For each statement you must return verdict as 1 if the statement can be directly inferred based on the context or 0 if the statement can not be directly inferred based on the context."
+
+return output calculation:
+```tp = sum of verdicts true
+fp = sum of verdicts false
+if mode is precision, fn = 0
+else, fn = sum of verdicts false
+
+if precision, return tp/(tp+fp+1e-8)
+if recall, return tp/(tp+fn+1e-8)
+```
